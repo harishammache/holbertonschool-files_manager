@@ -200,4 +200,78 @@ export default class FilesController {
       return res.status(500).json({ error: 'Server error' });
     }
   }
+
+  static async putPublish(req, res) {
+    const token = req.header('X-Token');
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    let ownerId;
+    try { ownerId = new ObjectId(userId); } catch (e) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    let fileId;
+    try { fileId = new ObjectId(req.params.id); } catch (e) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const filesCol = dbClient.db.collection('files');
+    const updated = await filesCol.findOneAndUpdate(
+      { _id: fileId, userId: ownerId },
+      { $set: { isPublic: true } },
+      { returnOriginal: false },
+    );
+
+    if (!updated.value) return res.status(404).json({ error: 'Not found' });
+
+    const f = updated.value;
+    return res.status(200).json({
+      id: f._id.toString(),
+      userId: f.userId.toString(),
+      name: f.name,
+      type: f.type,
+      isPublic: !!f.isPublic,
+      parentId: f.parentId && f.parentId.toString ? f.parentId.toString() : 0,
+    });
+  }
+
+  static async putUnpublish(req, res) {
+    const token = req.header('X-Token');
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    let ownerId;
+    try { ownerId = new ObjectId(userId); } catch (e) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    let fileId;
+    try { fileId = new ObjectId(req.params.id); } catch (e) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const filesCol = dbClient.db.collection('files');
+    const updated = await filesCol.findOneAndUpdate(
+      { _id: fileId, userId: ownerId },
+      { $set: { isPublic: false } },
+      { returnOriginal: false },
+    );
+
+    if (!updated.value) return res.status(404).json({ error: 'Not found' });
+
+    const f = updated.value;
+    return res.status(200).json({
+      id: f._id.toString(),
+      userId: f.userId.toString(),
+      name: f.name,
+      type: f.type,
+      isPublic: !!f.isPublic,
+      parentId: f.parentId && f.parentId.toString ? f.parentId.toString() : 0,
+    });
+  }
 }
