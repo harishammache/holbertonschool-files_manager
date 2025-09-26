@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { ObjectId } from 'mongodb';
+import mime from 'mime-types';
 import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
@@ -273,5 +274,50 @@ export default class FilesController {
       isPublic: !!f.isPublic,
       parentId: f.parentId && f.parentId.toString ? f.parentId.toString() : 0,
     });
+  }
+
+  static async getFile(req, res) {
+    try {
+      let fileId;
+      try { fileId = new ObjectId(req.params.id); } catch (e) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      if (!dbClient.isAlive()) return res.status(500).json({ error: 'Server error' });
+      const filesCol = dbClient.db.collection('files');
+      const file = await filesCol.findOne({ _id: fileId });
+      if (!file) return res.status(404).json({ error: 'Not found' });
+
+      if (!file.isPublic) {
+        const token = req.header('X-Token');
+        if (!token) return res.status(404).json({ error: 'Not found' });
+
+        const userId = await redisClient.get(`auth_${token}`);
+        if (!userId) return res.status(404).json({ error: 'Not found' });
+
+        let ownerId;
+        try { ownerId = new ObjectId(userId); } catch (e) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+        if (!file.userId || !file.userId.equals(ownerId)) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+      }
+
+      if (file.type === 'folder') {
+        return res.status(400).json({ error: "A folder doesn't have content" });
+      }
+
+      if (!file.localPath || !fs.existsSync(file.localPath)) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      const contentType = mime.lookup(file.name) || 'application/octet-stream';
+      const data = await fs.promises.readFile(file.localPath);
+      res.setHeader('Content-Type', contentType);
+      return res.status(200).send(data);
+    } catch (e) {
+      return res.status(500).json({ error: 'Server error' });
+    }
   }
 }
